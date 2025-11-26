@@ -286,7 +286,32 @@ class ReceiptDialog(tk.Toplevel):
             fg=self.palette["text_muted"],
         ).pack(anchor="w", pady=(0, 10))
 
-        headings = tk.Frame(card, bg=self.palette["panel"])
+        list_wrapper = tk.Frame(card, bg=self.palette["panel"], pady=5)
+        list_wrapper.pack(fill=tk.BOTH, expand=True)
+
+        list_canvas = tk.Canvas(
+            list_wrapper,
+            bg=self.palette["panel"],
+            highlightthickness=0,
+            bd=0,
+            height=220,
+        )
+        list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        list_scrollbar = tk.Scrollbar(list_wrapper, orient=tk.VERTICAL, command=list_canvas.yview)
+        list_canvas.configure(yscrollcommand=list_scrollbar.set)
+        list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        list_frame = tk.Frame(list_canvas, bg=self.palette["panel"], padx=0, pady=0)
+        list_canvas_window = list_canvas.create_window((0, 0), window=list_frame, anchor="nw")
+        list_frame.bind(
+            "<Configure>", lambda event: list_canvas.configure(scrollregion=list_canvas.bbox("all"))
+        )
+        list_canvas.bind(
+            "<Configure>", lambda event: list_canvas.itemconfig(list_canvas_window, width=event.width)
+        )
+        list_canvas.bind("<MouseWheel>", lambda e: self._scroll_canvas(list_canvas, e))
+
+        headings = tk.Frame(list_frame, bg=self.palette["panel"])
         headings.pack(fill=tk.X, pady=(0, 5))
         tk.Label(headings, text="Item", font=("Montserrat", 11, "bold"), bg=self.palette["panel"], fg=self.palette["text_primary"]).grid(row=0, column=0, sticky="w")
         tk.Label(headings, text="Qty", font=("Montserrat", 11, "bold"), bg=self.palette["panel"], fg=self.palette["text_primary"]).grid(row=0, column=1)
@@ -295,11 +320,11 @@ class ReceiptDialog(tk.Toplevel):
         headings.grid_columnconfigure(1, weight=1)
         headings.grid_columnconfigure(2, weight=1)
 
-        list_frame = tk.Frame(card, bg=self.palette["panel_dark"], padx=10, pady=10)
-        list_frame.pack(fill=tk.BOTH, expand=True)
+        rows_holder = tk.Frame(list_frame, bg=self.palette["panel_dark"], padx=10, pady=10)
+        rows_holder.pack(fill=tk.BOTH, expand=True)
 
         for idx, item in enumerate(items):
-            row = tk.Frame(list_frame, bg=self.palette["panel_dark"])
+            row = tk.Frame(rows_holder, bg=self.palette["panel_dark"])
             row.pack(fill=tk.X, pady=4)
             tk.Label(
                 row,
@@ -329,8 +354,10 @@ class ReceiptDialog(tk.Toplevel):
         summary = tk.Frame(card, bg=self.palette["panel"], pady=10)
         summary.pack(fill=tk.X)
         self._summary_line(summary, "Subtotal", total, bold=False)
+        self._divider(summary)
+        self._summary_line(summary, "TOTAL", total, bold=True, accent=True, font_size=14)
         self._summary_line(summary, "Cash", tendered, bold=False)
-        self._summary_line(summary, "Change", change, bold=True, accent=True)
+        self._summary_line(summary, "Change", change, bold=True)
 
         button_frame = tk.Frame(card, bg=self.palette["panel"], pady=5)
         button_frame.pack(fill=tk.X)
@@ -351,23 +378,40 @@ class ReceiptDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _: self._close())
         self.after(50, self._center_on_parent)
 
-    def _summary_line(self, parent: tk.Frame, label: str, amount: float, *, bold: bool, accent: bool = False) -> None:
+    def _summary_line(
+        self,
+        parent: tk.Frame,
+        label: str,
+        amount: float,
+        *,
+        bold: bool,
+        accent: bool = False,
+        font_size: int = 12,
+    ) -> None:
         frame = tk.Frame(parent, bg=self.palette["panel"])
         frame.pack(fill=tk.X)
         tk.Label(
             frame,
             text=label,
-            font=("Montserrat", 11, "bold" if bold else "normal"),
+            font=("Montserrat", font_size, "bold" if bold else "normal"),
             bg=self.palette["panel"],
             fg=self.palette["text_muted"],
         ).pack(side=tk.LEFT)
         tk.Label(
             frame,
             text=f"₱{amount:.2f}",
-            font=("Montserrat", 12, "bold" if bold else "normal"),
+            font=("Montserrat", font_size + 1, "bold" if bold else "normal"),
             bg=self.palette["panel"],
             fg=self.palette["cta"] if accent else self.palette["text_primary"],
         ).pack(side=tk.RIGHT)
+
+    def _divider(self, parent: tk.Frame) -> None:
+        tk.Frame(parent, bg=self.palette["panel_dark"], height=2).pack(fill=tk.X, pady=6)
+
+    def _scroll_canvas(self, canvas: tk.Canvas, event: tk.Event) -> None:
+        delta = -1 * (event.delta // 120)
+        if delta:
+            canvas.yview_scroll(delta, "units")
 
     def _apply_hover(self, widget: tk.Widget, normal_bg: str, hover_bg: str, *, cursor: str) -> None:
         widget.bind("<Enter>", lambda _: widget.configure(bg=hover_bg, cursor=cursor))
@@ -452,13 +496,36 @@ class POSApp:
         )
         order_title.pack(anchor="w", pady=(0, 10))
 
+        self.order_list_wrapper = tk.Frame(self.order_panel, bg=self.palette["panel"], pady=0)
+        self.order_list_wrapper.pack(fill=tk.BOTH, expand=True)
+
+        self.order_canvas = tk.Canvas(
+            self.order_list_wrapper,
+            bg=self.palette["panel"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.order_canvas.pack(fill=tk.BOTH, expand=True)
+
         self.order_items_container = tk.Frame(
-            self.order_panel,
+            self.order_canvas,
             bg=self.palette["panel"],
             pady=10,
             padx=10,
         )
-        self.order_items_container.pack(fill=tk.BOTH, expand=True)
+        self.order_canvas_window = self.order_canvas.create_window((0, 0), window=self.order_items_container, anchor="nw")
+        self.order_items_container.bind(
+            "<Configure>",
+            lambda event: self.order_canvas.configure(scrollregion=self.order_canvas.bbox("all")),
+        )
+        self.order_items_container.bind("<MouseWheel>", self._on_order_mousewheel)
+        self.order_canvas.bind("<MouseWheel>", self._on_order_mousewheel)
+        self.order_canvas.bind("<Enter>", lambda _: self._toggle_order_scroll(True))
+        self.order_canvas.bind("<Leave>", lambda _: self._toggle_order_scroll(False))
+        self.order_canvas.bind(
+            "<Configure>",
+            lambda event: self.order_canvas.itemconfig(self.order_canvas_window, width=event.width),
+        )
 
         self.total_label = tk.Label(
             self.order_panel,
@@ -593,6 +660,18 @@ class POSApp:
         for i in range(columns):
             self.products_frame.grid_columnconfigure(i, weight=1)
 
+    def _on_order_mousewheel(self, event: tk.Event) -> None:
+        if hasattr(self, "order_canvas"):
+            delta = -1 * (event.delta // 120)
+            if delta != 0:
+                self.order_canvas.yview_scroll(delta, "units")
+
+    def _toggle_order_scroll(self, bind: bool) -> None:
+        if bind:
+            self.order_canvas.bind_all("<MouseWheel>", self._on_order_mousewheel)
+        else:
+            self.order_canvas.unbind_all("<MouseWheel>")
+
     def _apply_hover_style(
         self,
         widget: tk.Widget,
@@ -685,6 +764,13 @@ class POSApp:
         self._render_order_items()
 
     def _render_order_items(self) -> None:
+        scroll_pos = None
+        if hasattr(self, "order_canvas"):
+            try:
+                scroll_pos = self.order_canvas.yview()
+            except tk.TclError:
+                scroll_pos = None
+
         for widget in self.order_items_container.winfo_children():
             widget.destroy()
 
@@ -699,23 +785,33 @@ class POSApp:
             empty_label.pack(expand=True)
         else:
             for name, info in self.order.items():
-                row_frame = tk.Frame(self.order_items_container, bg=self.palette["panel"], pady=5)
-                row_frame.pack(fill=tk.X, pady=5)
+                row_shell = tk.Frame(self.order_items_container, bg=self.palette["panel"], pady=2)
+                row_shell.pack(fill=tk.X, pady=4)
+
+                row_frame = tk.Frame(
+                    row_shell,
+                    bg=self.palette["panel_dark"],
+                    padx=10,
+                    pady=8,
+                    highlightthickness=1,
+                    highlightbackground=self.palette["card_hover"],
+                )
+                row_frame.pack(fill=tk.X)
 
                 img = self._get_cached_image(name, info.get("image"), info["color"], size=(60, 60))
-                thumb = tk.Label(row_frame, image=img, bg=self.palette["panel"])
+                thumb = tk.Label(row_frame, image=img, bg=self.palette["panel_dark"])
                 thumb.image = img
                 thumb.configure(width=60, height=60)
                 thumb.pack(side=tk.LEFT)
 
-                detail_frame = tk.Frame(row_frame, bg=self.palette["panel"])
+                detail_frame = tk.Frame(row_frame, bg=self.palette["panel_dark"])
                 detail_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=10)
 
                 name_label = tk.Label(
                     detail_frame,
                     text=name,
                     font=("Montserrat", 12, "bold"),
-                    bg=self.palette["panel"],
+                    bg=self.palette["panel_dark"],
                     fg=self.palette["text_primary"],
                 )
                 name_label.pack(anchor="w")
@@ -724,12 +820,12 @@ class POSApp:
                     detail_frame,
                     text=f"₱{info['price']:.2f}",
                     font=("Montserrat", 11),
-                    bg=self.palette["panel"],
+                    bg=self.palette["panel_dark"],
                     fg=self.palette["text_muted"],
                 )
                 price_label.pack(anchor="w")
 
-                qty_frame = tk.Frame(row_frame, bg=self.palette["panel"])
+                qty_frame = tk.Frame(row_frame, bg=self.palette["panel_dark"])
                 qty_frame.pack(side=tk.RIGHT)
 
                 minus_btn = tk.Button(
@@ -754,7 +850,7 @@ class POSApp:
                     text=str(info["qty"]),
                     font=("Montserrat", 12, "bold"),
                     width=3,
-                    bg=self.palette["panel"],
+                    bg=self.palette["panel_dark"],
                     fg=self.palette["text_primary"],
                 )
                 qty_label.pack(side=tk.LEFT)
@@ -777,6 +873,8 @@ class POSApp:
                 )
 
         self._update_total()
+        if scroll_pos:
+            self.order_canvas.yview_moveto(scroll_pos[0])
 
     def _update_total(self) -> None:
         total = sum(info["price"] * info["qty"] for info in self.order.values())
